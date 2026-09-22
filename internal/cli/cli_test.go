@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stianfro/modelctl/internal/modelctl"
 )
 
@@ -162,7 +164,7 @@ func TestCommandBranding(t *testing.T) {
 		t.Fatalf("provider help: %q, %v", out, err)
 	}
 	m := uiFixture(t)
-	if !strings.HasPrefix(m.View().Content, "modelctl\n") {
+	if !strings.HasPrefix(ansi.Strip(m.View().Content), "modelctl") {
 		t.Fatal("interactive title does not match the command name")
 	}
 }
@@ -265,5 +267,42 @@ func TestUIForms(t *testing.T) {
 	}
 	if _, err := os.Stat(m.s.AuthPath); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUIInlineAndCompact(t *testing.T) {
+	m := uiFixture(t)
+	m.Update(tea.WindowSizeMsg{Width: 42, Height: 24})
+	m.page = pickerScreen
+	for i := 0; i < 30; i++ {
+		m.models = append(m.models, fmt.Sprintf("provider/model-%02d", i))
+	}
+	m.cursor = 20
+	view := m.View()
+	if view.AltScreen || !strings.Contains(view.Content, "model-20") || strings.Contains(view.Content, "model-00") {
+		t.Fatal("picker must stay inline and keep selection visible")
+	}
+	for _, line := range strings.Split(view.Content, "\n") {
+		if ansi.StringWidth(line) > 40 {
+			t.Fatalf("line exceeds terminal width: %q", line)
+		}
+	}
+	m.form(providerScreen, []string{"ID", "URL", "Models", "Name", "Package"}, nil)
+	if strings.Count(m.View().Content, "\n") > 12 || !strings.Contains(ansi.Strip(m.View().Content), "1/5") {
+		t.Fatal("form should show one field at a time")
+	}
+	press(m, tea.KeyEnter)
+	if m.focus != 1 || !strings.Contains(ansi.Strip(m.View().Content), "2/5") {
+		t.Fatal("enter should advance to the next field")
+	}
+}
+
+func TestUIQuitClearsControlsAndSecrets(t *testing.T) {
+	m := uiFixture(t)
+	m.form(tokenScreen, []string{"Provider", "Token"}, []string{"p", "secret-test-token"})
+	m.quit()
+	view := m.View()
+	if !m.finished || view.AltScreen || len(m.fields) != 0 || strings.Contains(view.Content, "secret-test-token") || strings.Contains(view.Content, "enter") {
+		t.Fatal("quit must clear controls and token values")
 	}
 }
