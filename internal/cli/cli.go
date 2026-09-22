@@ -53,6 +53,7 @@ func New(in io.Reader, out, errout io.Writer) *cobra.Command {
 func (a *app) command() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "modelctl",
+		Version:       "dev",
 		Short:         "Switch OpenCode models and API tokens",
 		Long:          "Edit OpenCode's default model, custom providers, and API tokens.\nRun without a command in a terminal to open the interactive menu.\nChanges do not switch existing OpenCode sessions or remove project overrides.",
 		SilenceUsage:  true,
@@ -70,6 +71,7 @@ func (a *app) command() *cobra.Command {
 		},
 	}
 	root.SetIn(a.in)
+	root.SetVersionTemplate("modelctl {{.Version}}\n")
 	root.SetOut(a.out)
 	root.SetErr(a.errout)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })

@@ -1,2 +1,7 @@
 /bin/
 /coverage.out
+/dist/
+/site/node_modules/
+/site/.vitepress/cache/
+/site/.vitepress/dist/
+__pycache__/

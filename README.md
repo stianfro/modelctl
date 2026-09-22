@@ -4,13 +4,19 @@ Change OpenCode's default model, custom providers, and API tokens.
 
 ## Install
 
-Requires Go 1.26 or newer. Supports Linux and macOS.
+Linux and macOS, on Intel or ARM64:
 
 ```sh
-go install github.com/stianfro/modelctl/cmd/modelctl@latest
+curl -fsSL https://stianfro.github.io/modelctl/install.sh | sh
 ```
 
-Add `$HOME/go/bin` to your `PATH`. To install from this checkout, run `just install`.
+Or use Homebrew:
+
+```sh
+brew install stianfro/tap/modelctl
+```
+
+See [Get started](https://stianfro.github.io/modelctl/) for PATH setup and other install options.
 
 ## Use
 

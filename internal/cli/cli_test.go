@@ -145,6 +145,10 @@ func TestErrorsAndHelp(t *testing.T) {
 
 func TestCommandBranding(t *testing.T) {
 	sandbox(t)
+	version, _, err := execute("", "--version")
+	if err != nil || version != "modelctl dev\n" {
+		t.Fatalf("version: %q, %v", version, err)
+	}
 	cmd := New(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 	if cmd.Name() != "modelctl" {
 		t.Fatalf("command name = %q", cmd.Name())
