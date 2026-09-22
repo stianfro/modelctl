@@ -11,15 +11,19 @@ Model discovery needs the selected OpenCode binary on your `PATH`.
 If discovery fails, configured model IDs are shown with a warning.
 Changes apply to new work, not existing sessions or agent overrides.
 
-## OpenCode 2
+## OpenCode versions
+
+The target is detected from your config and installed binaries. V2 can be named
+`opencode` or `opencode2`. If both versions are installed and the config is
+ambiguous, choose one:
 
 ```sh
+modelctl --target opencode
 modelctl --target opencode2
-modelctl --target opencode2 use PROVIDER/MODEL
 ```
 
-V1 is the default. Set `MODELCTL_TARGET=opencode2` to use V2 by default.
-If V2 is named `opencode`, add `--opencode-bin opencode`.
+`MODELCTL_TARGET` sets an override. `--target auto` restores detection.
+Use `--opencode-bin PATH` for a specific executable.
 Both versions share the global config directory. Use `--config PATH` for separate files.
 Existing V1 files keep their format; modelctl does not migrate configs.
 

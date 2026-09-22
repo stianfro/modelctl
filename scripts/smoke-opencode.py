@@ -33,6 +33,10 @@ for target in ("opencode", "opencode2"):
         assert json.loads(run(cli + ["current", "--json"], env, tmp))["model"] == "custom/test-model"
         listed = json.loads(run(cli + ["list", "--json"], env, tmp))
         assert "custom/test-model" in listed
+        # The same installed binaries also work without an explicit target.
+        auto = [MODELCTL, "--opencode-bin", binary, "--config", config]
+        assert json.loads(run(auto + ["current", "--json"], env, tmp))["model"] == "custom/test-model"
+        assert "custom/test-model" in json.loads(run(auto + ["list", "--json"], env, tmp))
         if target == "opencode2":
             # Ask the actual preview to decode the config. Its cold-start model
             # discovery can return an empty list; modelctl retains configured IDs.
@@ -44,4 +48,4 @@ for target in ("opencode", "opencode2"):
             assert provider["package"] == "aisdk:@ai-sdk/openai-compatible"
             assert provider["settings"]["baseURL"] == "https://example.test/v1"
             assert documents[-1]["model"] == {"providerID": "custom", "model": "test-model"}
-        print(f"PASS {target}: provider, current, use, list (isolated files)")
+        print(f"PASS {target}: provider, current, use, list, auto detection (isolated files)")

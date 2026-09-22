@@ -118,7 +118,7 @@ func TestListJSONWithFakeOpenCode(t *testing.T) {
 	if err := os.Mkdir(bin, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\nprintf 'z/model\\na/model\\n'\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 1.18.32; exit 0; fi\nprintf 'z/model\\na/model\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	out, stderr, err := execute("", "list", "--json")
@@ -348,5 +348,21 @@ func TestUIV2FallbackAndLogin(t *testing.T) {
 	m.cursor = 3
 	if cmd := m.selectMenu(); cmd == nil || len(m.fields) != 0 {
 		t.Fatal("V2 should delegate login instead of collecting a token")
+	}
+}
+
+func TestAutoTargetOverridesEnvironment(t *testing.T) {
+	home := sandbox(t)
+	config := filepath.Join(home, "v2.jsonc")
+	if err := os.WriteFile(config, []byte(`{"providers":{},"model":{"providerID":"p","model":"m"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MODELCTL_TARGET", "opencode")
+	if _, _, err := execute("", "--config", config, "current"); err == nil {
+		t.Fatal("explicit V1 override should not read a V2 model object")
+	}
+	out, _, err := execute("", "--target", "auto", "--config", config, "current")
+	if err != nil || strings.TrimSpace(out) != "p/m" {
+		t.Fatalf("%q %v", out, err)
 	}
 }

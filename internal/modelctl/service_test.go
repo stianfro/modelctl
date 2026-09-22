@@ -55,6 +55,7 @@ func decoded(t *testing.T, text string) map[string]any {
 
 func TestConfigSelection(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("PATH", home)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_DATA_HOME", "")

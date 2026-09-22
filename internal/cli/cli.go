@@ -77,10 +77,10 @@ func (a *app) command() *cobra.Command {
 	root.SetErr(a.errout)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 	if a.target == "" {
-		a.target = "opencode"
+		a.target = "auto"
 	}
-	root.PersistentFlags().StringVar(&a.target, "target", a.target, "OpenCode target: opencode or opencode2 (MODELCTL_TARGET)")
-	root.PersistentFlags().StringVar(&a.binary, "opencode-bin", "", "OpenCode executable name or path (default: target name)")
+	root.PersistentFlags().StringVar(&a.target, "target", a.target, "OpenCode target: auto, opencode or opencode2 (MODELCTL_TARGET)")
+	root.PersistentFlags().StringVar(&a.binary, "opencode-bin", "", "OpenCode executable name or path (default: detect from PATH)")
 	root.PersistentFlags().StringVar(&a.config, "config", "", "config file to edit (default: global OpenCode config)")
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "write command results as JSON")
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -312,8 +312,8 @@ func resultText(r modelctl.Result) string {
 }
 
 func (a *app) service() (*modelctl.Service, error) {
-	if a.target != "opencode" && a.target != "opencode2" {
-		return nil, usageError{errors.New("target must be opencode or opencode2")}
+	if a.target != "auto" && a.target != "opencode" && a.target != "opencode2" {
+		return nil, usageError{errors.New("target must be auto, opencode or opencode2")}
 	}
 	return modelctl.NewTarget(a.config, a.target, a.binary)
 }

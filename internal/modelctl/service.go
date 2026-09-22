@@ -55,16 +55,13 @@ type ProviderOptions struct {
 }
 
 func New(config string) (*Service, error) {
-	return NewTarget(config, "opencode", "")
+	return NewTarget(config, "auto", "")
 }
 
-// NewTarget selects a config dialect explicitly. It never migrates a file.
+// NewTarget selects or detects a config dialect. It never migrates a file.
 func NewTarget(config, target, binary string) (*Service, error) {
-	if target != "opencode" && target != "opencode2" {
-		return nil, errors.New("target must be opencode or opencode2")
-	}
-	if binary == "" {
-		binary = target
+	if target != "auto" && target != "opencode" && target != "opencode2" {
+		return nil, errors.New("target must be auto, opencode or opencode2")
 	}
 
 	home, err := os.UserHomeDir()
@@ -96,6 +93,15 @@ func NewTarget(config, target, binary string) (*Service, error) {
 	config, err = filepath.Abs(config)
 	if err != nil {
 		return nil, err
+	}
+	if target == "auto" {
+		target, binary, err = detectTarget(config, binary)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if binary == "" {
+		binary = target
 	}
 	return &Service{
 		Target:         target,
