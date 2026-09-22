@@ -66,3 +66,7 @@ yaml:
     @for file in .github/workflows/*.yml; do yq eval '.' "$file" >/dev/null; done
 
 ci: lint test build
+
+# Optional integration check. Requires both installed OpenCode binaries.
+smoke-opencode: build
+    python3 scripts/smoke-opencode.py

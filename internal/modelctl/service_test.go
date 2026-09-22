@@ -429,3 +429,114 @@ func TestModelSubprocess(t *testing.T) {
 		t.Fatalf("cancellation: %v", err)
 	}
 }
+
+func TestV2ProviderAndModel(t *testing.T) {
+	s := fixture(t)
+	s.Target = "opencode2"
+	_, err := s.SetProvider(ProviderOptions{ID: "custom", BaseURL: "https://example.test/v1", Models: []string{"org/model"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := loadDocument(s.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.get("provider") != nil {
+		t.Fatal("wrote legacy provider key")
+	}
+	for _, tc := range []struct {
+		path []string
+		want string
+	}{
+		{[]string{"providers", "custom", "package"}, "aisdk:@ai-sdk/openai-compatible"},
+		{[]string{"providers", "custom", "settings", "baseURL"}, "https://example.test/v1"},
+	} {
+		got, err := d.string(tc.path...)
+		if err != nil || got != tc.want {
+			t.Fatalf("%v: %q %v", tc.path, got, err)
+		}
+	}
+	put(t, s.ConfigPath, `{"model":{"providerID":"custom","model":"org/model","variant":"fast"},"providers":{}}`)
+	current, err := s.Current()
+	if err != nil || current.Model != "custom/org/model#fast" {
+		t.Fatalf("%+v %v", current, err)
+	}
+	if _, err := s.Use("custom/next"); err != nil {
+		t.Fatal(err)
+	}
+	current, err = s.Current()
+	if err != nil || current.Model != "custom/next" {
+		t.Fatalf("%+v %v", current, err)
+	}
+}
+
+func TestProviderDialectSafety(t *testing.T) {
+	s := fixture(t)
+	put(t, s.ConfigPath, `{"providers":{}}`)
+	before := contents(t, s.ConfigPath)
+	if _, err := s.SetProvider(ProviderOptions{ID: "p", Name: "Test"}); err == nil {
+		t.Fatal("V1 accepted V2 config")
+	}
+	if contents(t, s.ConfigPath) != before {
+		t.Fatal("changed config on error")
+	}
+	s.Target = "opencode2"
+	put(t, s.ConfigPath, `{"provider":{"p":{"npm":"old"}}}`)
+	if _, err := s.SetProvider(ProviderOptions{ID: "p", Name: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := loadDocument(s.ConfigPath)
+	if d.get("providers") != nil || d.get("provider", "p", "name") == nil {
+		t.Fatal("mixed dialects")
+	}
+	put(t, s.ConfigPath, `{"provider":{},"providers":{}}`)
+	if _, err := s.SetProvider(ProviderOptions{ID: "p", Name: "Test"}); err == nil {
+		t.Fatal("accepted mixed dialect")
+	}
+}
+
+func TestConfiguredModelsFallback(t *testing.T) {
+	s := fixture(t)
+	s.Target = "opencode2"
+	put(t, s.ConfigPath, `{"providers":{"p":{"models":{"b":{},"a":{}}}}}`)
+	s.RunModels = func(context.Context, string) ([]byte, error) { return nil, errors.New("discovery failed") }
+	models, err := s.List(context.Background())
+	if err == nil || !reflect.DeepEqual(models, []string{"p/a", "p/b"}) {
+		t.Fatalf("%v %v", models, err)
+	}
+	s.RunModels = func(context.Context, string) ([]byte, error) { return []byte("p/b\np/c\n"), nil }
+	models, err = s.List(context.Background())
+	if err != nil || !reflect.DeepEqual(models, []string{"p/a", "p/b", "p/c"}) {
+		t.Fatalf("%v %v", models, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if models, err := s.List(ctx); !errors.Is(err, context.Canceled) || len(models) != 0 {
+		t.Fatal("cancellation should not fall back")
+	}
+}
+
+func TestV2CommandsAndCredentials(t *testing.T) {
+	s := fixture(t)
+	s.Target, s.Binary, s.ExplicitConfig = "opencode2", "my-opencode", true
+	cmd := s.LoginCommand(context.Background(), "custom")
+	if !reflect.DeepEqual(cmd.Args, []string{"my-opencode", "auth", "login", "--standalone", "custom"}) {
+		t.Fatal(cmd.Args)
+	}
+	if _, err := s.SetToken("custom", []byte("sensitive")); err == nil {
+		t.Fatal("must not write V1 auth for V2")
+	}
+	if _, err := os.Stat(s.AuthPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("created auth.json")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "opencode2")
+	put(t, bin, "#!/bin/sh\n[ \"$1\" = models ] && [ \"$2\" = --standalone ] && [ \"$OPENCODE_CONFIG\" = /tmp/explicit.json ] || exit 2\nprintf 'p/m\\n'\n")
+	if err := os.Chmod(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := runModelsBinary(context.Background(), "/tmp/explicit.json", bin, true)
+	if err != nil || string(data) != "p/m\n" {
+		t.Fatalf("%q %v", data, err)
+	}
+}

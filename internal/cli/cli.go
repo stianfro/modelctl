@@ -37,16 +37,17 @@ func args(check cobra.PositionalArgs) cobra.PositionalArgs {
 }
 
 type app struct {
-	in         io.Reader
-	out        io.Writer
-	errout     io.Writer
-	config     string
-	json       bool
-	newService func(string) (*modelctl.Service, error)
+	in     io.Reader
+	out    io.Writer
+	errout io.Writer
+	config string
+	json   bool
+	target string
+	binary string
 }
 
 func New(in io.Reader, out, errout io.Writer) *cobra.Command {
-	a := &app{in: in, out: out, errout: errout, newService: modelctl.New}
+	a := &app{in: in, out: out, errout: errout, target: os.Getenv("MODELCTL_TARGET")}
 	return a.command()
 }
 
@@ -63,7 +64,7 @@ func (a *app) command() *cobra.Command {
 			if a.json || !terminalReader(a.in) || !terminalWriter(a.out) {
 				return usageError{errors.New("interactive mode needs a terminal; use a command such as 'modelctl current --json' or 'modelctl --help'")}
 			}
-			s, err := a.newService(a.config)
+			s, err := a.service()
 			if err != nil {
 				return err
 			}
@@ -75,6 +76,11 @@ func (a *app) command() *cobra.Command {
 	root.SetOut(a.out)
 	root.SetErr(a.errout)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
+	if a.target == "" {
+		a.target = "opencode"
+	}
+	root.PersistentFlags().StringVar(&a.target, "target", a.target, "OpenCode target: opencode or opencode2 (MODELCTL_TARGET)")
+	root.PersistentFlags().StringVar(&a.binary, "opencode-bin", "", "OpenCode executable name or path (default: target name)")
 	root.PersistentFlags().StringVar(&a.config, "config", "", "config file to edit (default: global OpenCode config)")
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "write command results as JSON")
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -96,7 +102,7 @@ func (a *app) currentCommand() *cobra.Command {
 	return &cobra.Command{
 		Use: "current", Short: "Show the default model in the selected config file", Args: args(cobra.NoArgs),
 		RunE: func(_ *cobra.Command, _ []string) error {
-			s, err := a.newService(a.config)
+			s, err := a.service()
 			if err != nil {
 				return err
 			}
@@ -119,15 +125,20 @@ func (a *app) currentCommand() *cobra.Command {
 
 func (a *app) listCommand() *cobra.Command {
 	return &cobra.Command{
-		Use: "list", Short: "List models available to OpenCode in the current directory", Args: args(cobra.NoArgs),
+		Use: "list", Short: "List configured and discovered OpenCode models", Args: args(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, err := a.newService(a.config)
+			s, err := a.service()
 			if err != nil {
 				return err
 			}
 			models, err := s.List(cmd.Context())
 			if err != nil {
-				return err
+				if len(models) == 0 {
+					return err
+				}
+				if _, writeErr := fmt.Fprintf(a.errout, "Warning: %s; showing configured model IDs only.\n", err); writeErr != nil {
+					return writeErr
+				}
 			}
 			if a.json {
 				return json.NewEncoder(a.out).Encode(models)
@@ -146,7 +157,7 @@ func (a *app) useCommand() *cobra.Command {
 	return &cobra.Command{
 		Use: "use PROVIDER/MODEL", Short: "Set the default model for new work", Args: args(cobra.ExactArgs(1)),
 		RunE: func(_ *cobra.Command, values []string) error {
-			s, err := a.newService(a.config)
+			s, err := a.service()
 			if err != nil {
 				return err
 			}
@@ -170,7 +181,7 @@ func (a *app) providerCommand() *cobra.Command {
 				}
 			}
 			o.ID = values[0]
-			s, err := a.newService(a.config)
+			s, err := a.service()
 			if err != nil {
 				return err
 			}
@@ -195,9 +206,23 @@ func (a *app) tokenCommand() *cobra.Command {
 			if err := modelctl.ValidateProvider(values[0]); err != nil {
 				return usageError{err}
 			}
-			s, err := a.newService(a.config)
+			s, err := a.service()
 			if err != nil {
 				return err
+			}
+			if s.Target == "opencode2" {
+				if stdin || a.json || !terminalReader(a.in) || !terminalWriter(a.errout) {
+					return usageError{errors.New("V2 tokens require OpenCode's interactive login; run modelctl --target opencode2 token set PROVIDER without --stdin or --json")}
+				}
+				login := s.LoginCommand(cmd.Context(), values[0])
+				login.Stdin, login.Stdout, login.Stderr = a.in, a.errout, a.errout
+				if err := login.Run(); err != nil {
+					if cmd.Context().Err() != nil {
+						return cmd.Context().Err()
+					}
+					return errors.New("OpenCode 2 login did not complete")
+				}
+				return nil
 			}
 			var token []byte
 			if stdin {
@@ -284,4 +309,11 @@ func resultText(r modelctl.Result) string {
 	default:
 		return strings.TrimSpace(prefix)
 	}
+}
+
+func (a *app) service() (*modelctl.Service, error) {
+	if a.target != "opencode" && a.target != "opencode2" {
+		return nil, usageError{errors.New("target must be opencode or opencode2")}
+	}
+	return modelctl.NewTarget(a.config, a.target, a.binary)
 }

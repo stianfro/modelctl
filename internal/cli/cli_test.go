@@ -24,6 +24,7 @@ func sandbox(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	t.Setenv("OPENCODE_AUTH_CONTENT", "")
+	t.Setenv("MODELCTL_TARGET", "")
 	t.Setenv("PATH", filepath.Join(home, "bin"))
 	return home
 }
@@ -304,5 +305,48 @@ func TestUIQuitClearsControlsAndSecrets(t *testing.T) {
 	view := m.View()
 	if !m.finished || view.AltScreen || len(m.fields) != 0 || strings.Contains(view.Content, "secret-test-token") || strings.Contains(view.Content, "enter") {
 		t.Fatal("quit must clear controls and token values")
+	}
+}
+
+func TestV2CLI(t *testing.T) {
+	sandbox(t)
+	out, _, err := execute("", "--target", "opencode2", "provider", "set", "custom", "--base-url", "https://example.test/v1", "--model", "m")
+	if err != nil {
+		t.Fatalf("%s %v", out, err)
+	}
+	out, warning, err := execute("", "--target", "opencode2", "list", "--json")
+	if err != nil || strings.TrimSpace(out) != `["custom/m"]` || !strings.Contains(warning, "configured model IDs only") {
+		t.Fatalf("%q %q %v", out, warning, err)
+	}
+	_, _, err = execute("secret", "--target", "opencode2", "token", "set", "custom", "--stdin")
+	if err == nil || !strings.Contains(err.Error(), "interactive login") {
+		t.Fatal(err)
+	}
+	_, _, err = execute("", "--target", "unknown", "current")
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatal("invalid target accepted")
+	}
+	t.Setenv("MODELCTL_TARGET", "opencode2")
+	_, _, err = execute("", "provider", "set", "custom", "--name", "Updated")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUIV2FallbackAndLogin(t *testing.T) {
+	m := uiFixture(t)
+	m.s.Target = "opencode2"
+	m.page = pickerScreen
+	m.Update(modelsMsg{models: []string{"p/first"}, err: errors.New("discovery failed")})
+	if !strings.Contains(m.View().Content, "p/first") || strings.Contains(m.View().Content, "No matches") {
+		t.Fatal("fallback hidden")
+	}
+	press(m, tea.KeyEnter)
+	if m.current != "p/first" {
+		t.Fatal("fallback model cannot be selected")
+	}
+	m.cursor = 3
+	if cmd := m.selectMenu(); cmd == nil || len(m.fields) != 0 {
+		t.Fatal("V2 should delegate login instead of collecting a token")
 	}
 }

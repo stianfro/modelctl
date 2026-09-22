@@ -26,6 +26,8 @@ const (
 
 var menuItems = []string{"Switch default model", "Set model by ID", "Add or update custom provider", "Set API token", "Quit"}
 
+type loginMsg struct{ err error }
+
 type modelsMsg struct {
 	models []string
 	err    error
@@ -116,6 +118,12 @@ func (m *ui) back() {
 
 func (m *ui) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case loginMsg:
+		m.notice = "✓ OpenCode login completed."
+		if msg.err != nil {
+			m.notice = "OpenCode login did not complete."
+		}
+		return m, nil
 	case spinner.TickMsg:
 		if m.loading {
 			var cmd tea.Cmd
@@ -134,10 +142,12 @@ func (m *ui) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = false
+		m.models = msg.models
 		if msg.err != nil {
 			m.notice = msg.err.Error()
-		} else {
-			m.models = msg.models
+			if len(m.models) > 0 {
+				m.notice += "; showing configured model IDs only."
+			}
 		}
 	case tea.KeyPressMsg:
 		key := msg.String()
@@ -225,6 +235,9 @@ func (m *ui) selectMenu() tea.Cmd {
 	case 2:
 		return m.form(providerScreen, []string{"Provider ID", "Base URL (blank: unchanged)", "Model IDs (comma-separated, blank: unchanged)", "Display name (optional)", "AI SDK package (optional)"}, nil)
 	case 3:
+		if m.s.Target == "opencode2" {
+			return tea.ExecProcess(m.s.LoginCommand(m.ctx, ""), func(err error) tea.Msg { return loginMsg{err} })
+		}
 		provider, _, _ := strings.Cut(m.current, "/")
 		return m.form(tokenScreen, []string{"Provider ID", "API token (hidden)"}, []string{provider})
 	default:
@@ -312,7 +325,7 @@ func (m *ui) View() tea.View {
 		return tea.NewView(clip(accent.Render("modelctl")+"  "+current) + "\n")
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s  %s\n%s\n\n", accent.Render("modelctl"), muted.Render("OpenCode"), clip(valueStyle.Render(current)))
+	fmt.Fprintf(&b, "%s  %s\n%s\n\n", accent.Render("modelctl"), muted.Render(m.targetLabel()), clip(valueStyle.Render(current)))
 	row := func(selected bool, text string) {
 		if selected {
 			fmt.Fprintln(&b, clip(accent.Render("› "+text)))
@@ -323,6 +336,9 @@ func (m *ui) View() tea.View {
 	switch m.page {
 	case menuScreen:
 		for i, item := range menuItems {
+			if i == 3 && m.s.Target == "opencode2" {
+				item = "Sign in with OpenCode"
+			}
 			row(i == m.cursor, item)
 		}
 		b.WriteString("\n" + muted.Render("↑↓ choose · enter open · esc quit") + "\n")
@@ -331,6 +347,8 @@ func (m *ui) View() tea.View {
 		items := m.filtered()
 		if m.loading {
 			fmt.Fprintf(&b, "%s Loading models\n", m.spinner.View())
+		} else if m.notice != "" && len(items) == 0 && len(m.models) == 0 {
+			b.WriteString("Model discovery failed. Use Set model by ID from the menu.\n")
 		} else if len(items) == 0 {
 			b.WriteString("No matches. Try a model ID from the menu.\n")
 		} else {
@@ -417,4 +435,11 @@ func readPassword(ctx context.Context, in io.Reader, out io.Writer) ([]byte, err
 		return nil, context.Canceled
 	}
 	return []byte(result.input.Value()), nil
+}
+
+func (m *ui) targetLabel() string {
+	if m.s.Target == "opencode2" {
+		return "OpenCode 2"
+	}
+	return "OpenCode 1"
 }

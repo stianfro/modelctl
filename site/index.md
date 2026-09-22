@@ -39,7 +39,8 @@ modelctl
 
 Use the arrow keys and Enter. Type to filter models. Press Escape to cancel.
 
-Prefer commands? See [Commands](./commands).
+For OpenCode 2, run `modelctl --target opencode2`.
+See [Commands](./commands) for direct commands and config selection.
 
 ## Update
 

@@ -16,11 +16,15 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/tailscale/hujson"
 )
 
 const MaxTokenSize = 64 << 10
 
 type Service struct {
+	Target         string
+	Binary         string
 	ConfigPath     string
 	AuthPath       string
 	ExplicitConfig bool
@@ -51,6 +55,18 @@ type ProviderOptions struct {
 }
 
 func New(config string) (*Service, error) {
+	return NewTarget(config, "opencode", "")
+}
+
+// NewTarget selects a config dialect explicitly. It never migrates a file.
+func NewTarget(config, target, binary string) (*Service, error) {
+	if target != "opencode" && target != "opencode2" {
+		return nil, errors.New("target must be opencode or opencode2")
+	}
+	if binary == "" {
+		binary = target
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -82,11 +98,15 @@ func New(config string) (*Service, error) {
 		return nil, err
 	}
 	return &Service{
+		Target:         target,
+		Binary:         binary,
 		ConfigPath:     config,
 		AuthPath:       filepath.Join(dataHome, "opencode", "auth.json"),
 		ExplicitConfig: explicit,
 		Getenv:         os.Getenv,
-		RunModels:      runModels,
+		RunModels: func(ctx context.Context, config string) ([]byte, error) {
+			return runModelsBinary(ctx, config, binary, target == "opencode2")
+		},
 	}, nil
 }
 
@@ -124,9 +144,9 @@ func (s *Service) Current() (Current, error) {
 	if err != nil {
 		return c, err
 	}
-	c.Model, err = d.string("model")
+	c.Model, err = s.modelRef(d)
 	if err == nil && c.Model != "" {
-		err = ValidateModelRef(c.Model)
+		err = s.validateCurrentRef(c.Model)
 	}
 	return c, err
 }
@@ -140,7 +160,7 @@ func (s *Service) Use(model string) (Result, error) {
 	if err != nil {
 		return r, err
 	}
-	if current, err := d.string("model"); err != nil {
+	if current, err := s.modelRef(d); err != nil {
 		return r, err
 	} else if current != model {
 		if err := d.set([]string{"model"}, model); err != nil {
@@ -174,17 +194,27 @@ func (s *Service) SetProvider(o ProviderOptions) (Result, error) {
 	if err != nil {
 		return r, err
 	}
-	for _, path := range [][]string{{"provider"}, {"provider", o.ID}, {"provider", o.ID, "options"}, {"provider", o.ID, "models"}} {
+	root, options, pkg, err := s.providerLayout(d)
+	if err != nil {
+		return r, err
+	}
+	if root == "providers" && o.Package != "" && !strings.HasPrefix(o.Package, "aisdk:") {
+		o.Package = "aisdk:" + o.Package
+	}
+	for _, path := range [][]string{{root}, {root, o.ID}, {root, o.ID, options}, {root, o.ID, "models"}} {
 		if err := d.object(path...); err != nil {
 			return r, err
 		}
 	}
-	if d.get("provider", o.ID) == nil {
+	if d.get(root, o.ID) == nil {
 		if o.BaseURL == "" || len(o.Models) == 0 {
 			return r, errors.New("a new custom provider needs --base-url and at least one --model")
 		}
 		if o.Package == "" {
 			o.Package = "@ai-sdk/openai-compatible"
+			if root == "providers" {
+				o.Package = "aisdk:" + o.Package
+			}
 		}
 	} else if o.BaseURL == "" && o.Name == "" && o.Package == "" && len(o.Models) == 0 {
 		return r, errors.New("supply at least one provider setting")
@@ -193,9 +223,9 @@ func (s *Service) SetProvider(o ProviderOptions) (Result, error) {
 		path  []string
 		value string
 	}{
-		{[]string{"provider", o.ID, "options", "baseURL"}, o.BaseURL},
-		{[]string{"provider", o.ID, "name"}, o.Name},
-		{[]string{"provider", o.ID, "npm"}, o.Package},
+		{[]string{root, o.ID, options, "baseURL"}, o.BaseURL},
+		{[]string{root, o.ID, "name"}, o.Name},
+		{[]string{root, o.ID, pkg}, o.Package},
 	} {
 		if field.value == "" {
 			continue
@@ -211,7 +241,7 @@ func (s *Service) SetProvider(o ProviderOptions) (Result, error) {
 		}
 	}
 	for _, model := range o.Models {
-		path := []string{"provider", o.ID, "models", model}
+		path := []string{root, o.ID, "models", model}
 		if err := d.object(path...); err != nil {
 			return r, err
 		}
@@ -226,6 +256,9 @@ func (s *Service) SetProvider(o ProviderOptions) (Result, error) {
 }
 
 func (s *Service) SetToken(provider string, token []byte) (Result, error) {
+	if s.Target == "opencode2" {
+		return Result{}, errors.New("V2 credentials are managed by OpenCode; use opencode2 auth login (V1 auth.json is not the V2 credential store)")
+	}
 	r := Result{Action: "token", Path: s.AuthPath, Provider: provider}
 	if err := ValidateProvider(provider); err != nil {
 		return r, err
@@ -272,16 +305,25 @@ func (s *Service) SetToken(provider string, token []byte) (Result, error) {
 	return r, err
 }
 
+// List returns configured IDs even when runtime discovery fails. Callers must
+// show the error as a warning when a partial list is returned.
 func (s *Service) List(ctx context.Context) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	configured, err := s.configuredModels()
+	if err != nil {
+		return nil, err
+	}
 	override := ""
 	if s.ExplicitConfig {
 		override = s.ConfigPath
 	}
 	data, err := s.RunModels(ctx, override)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
-		return nil, err
+		return configured, err
 	}
 	models := []string{}
 	for _, line := range strings.Split(string(data), "\n") {
@@ -290,9 +332,49 @@ func (s *Service) List(ctx context.Context) ([]string, error) {
 			continue
 		}
 		if ValidateModelRef(line) != nil {
-			return nil, errors.New("unexpected output from opencode models; check your OpenCode installation")
+			return configured, errors.New("unexpected output from OpenCode models; check your OpenCode installation")
 		}
 		models = append(models, line)
+	}
+	if len(models) == 0 && len(configured) > 0 {
+		return configured, errors.New("OpenCode returned no models")
+	}
+	models = append(models, configured...)
+	slices.Sort(models)
+	return slices.Compact(models), nil
+}
+
+func (s *Service) configuredModels() ([]string, error) {
+	d, err := loadDocument(s.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	root, _, _, err := s.providerLayout(d)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.object(root); err != nil {
+		return nil, err
+	}
+	models := []string{}
+	if v := d.get(root); v != nil {
+		for _, provider := range v.Value.(*hujson.Object).Members {
+			id := provider.Name.Value.(hujson.Literal).String()
+			if ValidateProvider(id) != nil {
+				continue
+			}
+			if err := d.object(root, id, "models"); err != nil {
+				return nil, err
+			}
+			if entries := d.get(root, id, "models"); entries != nil {
+				for _, model := range entries.Value.(*hujson.Object).Members {
+					ref := id + "/" + model.Name.Value.(hujson.Literal).String()
+					if ValidateModelRef(ref) == nil {
+						models = append(models, ref)
+					}
+				}
+			}
+		}
 	}
 	slices.Sort(models)
 	return slices.Compact(models), nil
@@ -308,7 +390,17 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 }
 
 func runModels(ctx context.Context, config string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "opencode", "models")
+	return runModelsBinary(ctx, config, "opencode", false)
+}
+
+func runModelsBinary(ctx context.Context, config, binary string, v2 bool) ([]byte, error) {
+	args := []string{"models"}
+	// A private V2 server reads this process's config and environment, not a
+	// long-running background server's stale state.
+	if v2 {
+		args = append(args, "--standalone")
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.WaitDelay = time.Second
 	if config != "" {
 		cmd.Env = append(withoutEnv(os.Environ(), "OPENCODE_CONFIG"), "OPENCODE_CONFIG="+config)
@@ -318,12 +410,12 @@ func runModels(ctx context.Context, config string) ([]byte, error) {
 	cmd.Stderr = io.Discard // OpenCode parse errors can contain full configs, including secrets.
 	if err := cmd.Run(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return nil, errors.New("opencode is not installed or not on PATH; direct config and token commands still work")
+			return nil, fmt.Errorf("%s is not installed or not on PATH; select a binary with --opencode-bin", binary)
 		}
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("opencode models: %w", ctx.Err())
 		}
-		return nil, errors.New("opencode models failed; check your OpenCode config and credentials (child output was hidden to protect secrets)")
+		return nil, fmt.Errorf("%s models failed; run it directly in this directory to inspect the error (child output hidden to protect secrets)", binary)
 	}
 	return output.Bytes(), nil
 }
@@ -336,4 +428,75 @@ func withoutEnv(env []string, key string) []string {
 		}
 	}
 	return result
+}
+
+func (s *Service) providerLayout(d *document) (root, options, pkg string, err error) {
+	if d.get("provider") != nil && d.get("providers") != nil {
+		return "", "", "", errors.New("config contains both provider and providers; use separate V1 and V2 config files")
+	}
+	if s.Target != "opencode2" && d.get("providers") != nil {
+		return "", "", "", errors.New("this is a V2 provider config; use --target opencode2")
+	}
+	if s.Target == "opencode2" && d.get("provider") == nil {
+		return "providers", "settings", "package", nil
+	}
+	return "provider", "options", "npm", nil
+}
+
+func (s *Service) modelRef(d *document) (string, error) {
+	if s.Target == "opencode2" {
+		if v := d.get("model"); v != nil {
+			if _, ok := v.Value.(*hujson.Object); ok {
+				provider, err := d.string("model", "providerID")
+				if err != nil {
+					return "", err
+				}
+				model, err := d.string("model", "model")
+				if err != nil {
+					return "", err
+				}
+				ref := provider + "/" + model
+				variant, err := d.string("model", "variant")
+				if err != nil {
+					return "", err
+				}
+				if variant != "" {
+					ref += "#" + variant
+				}
+				return ref, s.validateCurrentRef(ref)
+			}
+		}
+	}
+	return d.string("model")
+}
+
+// LoginCommand lets V2 own its credential database and interactive auth flow.
+// No token is passed in argv or an environment variable.
+func (s *Service) LoginCommand(ctx context.Context, provider string) *exec.Cmd {
+	binary := s.Binary
+	if binary == "" {
+		binary = "opencode2"
+	}
+	args := []string{"auth", "login", "--standalone"}
+	if provider != "" {
+		args = append(args, provider)
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	if s.ExplicitConfig {
+		cmd.Env = append(withoutEnv(os.Environ(), "OPENCODE_CONFIG"), "OPENCODE_CONFIG="+s.ConfigPath)
+	}
+	return cmd
+}
+
+func (s *Service) validateCurrentRef(ref string) error {
+	if s.Target == "opencode2" {
+		model, variant, found := strings.Cut(ref, "#")
+		if found {
+			if err := validateModel(variant); err != nil {
+				return err
+			}
+			return ValidateModelRef(model)
+		}
+	}
+	return ValidateModelRef(ref)
 }

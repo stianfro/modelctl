@@ -2,6 +2,7 @@
 
 Run `just ci distribution-test docs-test yaml` before pushing changes.
 Use `just docs-dev` to preview the docs.
+Use `just smoke-opencode` to test installed V1 and V2 binaries with temporary configs.
 
 ## Release
 
