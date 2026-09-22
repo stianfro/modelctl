@@ -39,7 +39,8 @@ type Current struct {
 
 type Result struct {
 	Action   string   `json:"action"`
-	Path     string   `json:"path"`
+	Path     string   `json:"path,omitempty"`
+	Store    string   `json:"store,omitempty"`
 	Changed  bool     `json:"changed"`
 	Model    string   `json:"model,omitempty"`
 	Provider string   `json:"provider,omitempty"`
@@ -262,9 +263,10 @@ func (s *Service) SetProvider(o ProviderOptions) (Result, error) {
 }
 
 func (s *Service) SetToken(provider string, token []byte) (Result, error) {
-	if s.Target == "opencode2" {
-		return Result{}, errors.New("V2 credentials are managed by OpenCode; use opencode2 auth login (V1 auth.json is not the V2 credential store)")
-	}
+	return s.SetTokenContext(context.Background(), provider, token)
+}
+
+func (s *Service) SetTokenContext(ctx context.Context, provider string, token []byte) (Result, error) {
 	r := Result{Action: "token", Path: s.AuthPath, Provider: provider}
 	if err := ValidateProvider(provider); err != nil {
 		return r, err
@@ -272,6 +274,12 @@ func (s *Service) SetToken(provider string, token []byte) (Result, error) {
 	key := strings.TrimSuffix(strings.TrimSuffix(string(token), "\n"), "\r")
 	if key == "" || len(key) > MaxTokenSize || !utf8.ValidString(key) || strings.IndexFunc(key, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return r, errors.New("token must contain 1 to 65536 bytes without whitespace (one final newline is allowed)")
+	}
+	if err := ctx.Err(); err != nil {
+		return r, err
+	}
+	if s.Target == "opencode2" {
+		return s.setV2Token(ctx, provider, key)
 	}
 	if s.Getenv != nil && s.Getenv("OPENCODE_AUTH_CONTENT") != "" {
 		return r, errors.New("OPENCODE_AUTH_CONTENT overrides the credential file; unset it before saving a token")
@@ -474,24 +482,6 @@ func (s *Service) modelRef(d *document) (string, error) {
 		}
 	}
 	return d.string("model")
-}
-
-// LoginCommand lets V2 own its credential database and interactive auth flow.
-// No token is passed in argv or an environment variable.
-func (s *Service) LoginCommand(ctx context.Context, provider string) *exec.Cmd {
-	binary := s.Binary
-	if binary == "" {
-		binary = "opencode2"
-	}
-	args := []string{"auth", "login", "--standalone"}
-	if provider != "" {
-		args = append(args, provider)
-	}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	if s.ExplicitConfig {
-		cmd.Env = append(withoutEnv(os.Environ(), "OPENCODE_CONFIG"), "OPENCODE_CONFIG="+s.ConfigPath)
-	}
-	return cmd
 }
 
 func (s *Service) validateCurrentRef(ref string) error {

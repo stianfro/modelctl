@@ -27,8 +27,9 @@ Use `--opencode-bin PATH` for a specific executable.
 Both versions share the global config directory. Use `--config PATH` for separate files.
 Existing V1 files keep their format; modelctl does not migrate configs.
 
-V2 token actions open OpenCode's login flow. `--stdin` and `--json` are V1-only
-for `token set`.
+Paste API tokens into the hidden prompt, or use `--stdin`. Both versions support
+`--json`. V2 saves tokens in OpenCode's native credential store through its local API,
+not in the config file.
 
 ## Custom providers
 

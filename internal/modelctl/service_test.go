@@ -520,10 +520,6 @@ func TestConfiguredModelsFallback(t *testing.T) {
 func TestV2CommandsAndCredentials(t *testing.T) {
 	s := fixture(t)
 	s.Target, s.Binary, s.ExplicitConfig = "opencode2", "my-opencode", true
-	cmd := s.LoginCommand(context.Background(), "custom")
-	if !reflect.DeepEqual(cmd.Args, []string{"my-opencode", "auth", "login", "--standalone", "custom"}) {
-		t.Fatal(cmd.Args)
-	}
 	if _, err := s.SetToken("custom", []byte("sensitive")); err == nil {
 		t.Fatal("must not write V1 auth for V2")
 	}

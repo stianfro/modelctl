@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stianfro/modelctl/internal/modelctl"
@@ -319,7 +320,7 @@ func TestV2CLI(t *testing.T) {
 		t.Fatalf("%q %q %v", out, warning, err)
 	}
 	_, _, err = execute("secret", "--target", "opencode2", "token", "set", "custom", "--stdin")
-	if err == nil || !strings.Contains(err.Error(), "interactive login") {
+	if err == nil || !strings.Contains(err.Error(), "cannot start OpenCode 2") {
 		t.Fatal(err)
 	}
 	_, _, err = execute("", "--target", "unknown", "current")
@@ -346,8 +347,8 @@ func TestUIV2FallbackAndLogin(t *testing.T) {
 		t.Fatal("fallback model cannot be selected")
 	}
 	m.cursor = 3
-	if cmd := m.selectMenu(); cmd == nil || len(m.fields) != 0 {
-		t.Fatal("V2 should delegate login instead of collecting a token")
+	if cmd := m.selectMenu(); cmd == nil || len(m.fields) != 2 || m.fields[1].EchoMode != textinput.EchoPassword {
+		t.Fatal("V2 should collect a masked API token")
 	}
 }
 
@@ -364,5 +365,28 @@ func TestAutoTargetOverridesEnvironment(t *testing.T) {
 	out, _, err := execute("", "--target", "auto", "--config", config, "current")
 	if err != nil || strings.TrimSpace(out) != "p/m" {
 		t.Fatalf("%q %v", out, err)
+	}
+}
+
+func TestV2TokenSaveClearsInputAndKeepsUIResponsive(t *testing.T) {
+	m := uiFixture(t)
+	m.s.Target = "opencode2"
+	m.form(tokenScreen, []string{"Provider", "Token"}, []string{"p", "SENSITIVE-KEY"})
+	if cmd := m.submit(); cmd == nil || !m.saving || m.fields[1].Value() != "" {
+		t.Fatal("save must be asynchronous and clear input")
+	}
+	if strings.Contains(m.View().Content, "SENSITIVE-KEY") || !strings.Contains(m.View().Content, "Saving API token") {
+		t.Fatal("saving view leaked or missing")
+	}
+	press(m, tea.KeyEscape)
+	if !m.saving {
+		t.Fatal("must not abandon an in-flight save with a misleading cancellation notice")
+	}
+	if m.saveCancel != nil {
+		m.saveCancel()
+	}
+	m.Update(tokenSavedMsg{err: errors.New("save failed")})
+	if m.saving || m.page != tokenScreen || m.fields[1].Value() != "" {
+		t.Fatal("failure should allow a fresh masked retry")
 	}
 }

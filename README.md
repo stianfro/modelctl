@@ -55,9 +55,9 @@ Both versions use the same global config directory. Use `--config PATH` for
 separate files. Provider edits retain an existing V1 layout; new V2 configs use
 `providers`, `package`, and `settings`. Files are not migrated.
 
-For V2 tokens, the menu and `token set PROVIDER` open OpenCode's own login flow.
-V2 does not support `token set --stdin` or `--json`. No V2 credentials are written
-to V1's `auth.json`.
+For both versions, paste an API token into the hidden prompt or use `--stdin`.
+V2 saves tokens through OpenCode's local API in its native credential store, not
+in the config file or V1's `auth.json`.
 
 ## Add a custom provider
 

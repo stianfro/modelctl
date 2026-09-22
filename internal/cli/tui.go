@@ -26,7 +26,10 @@ const (
 
 var menuItems = []string{"Switch default model", "Set model by ID", "Add or update custom provider", "Set API token", "Quit"}
 
-type loginMsg struct{ err error }
+type tokenSavedMsg struct {
+	result modelctl.Result
+	err    error
+}
 
 type modelsMsg struct {
 	models []string
@@ -40,22 +43,24 @@ var (
 )
 
 type ui struct {
-	s        *modelctl.Service
-	ctx      context.Context
-	page     screen
-	cursor   int
-	width    int
-	height   int
-	current  string
-	models   []string
-	loading  bool
-	search   textinput.Model
-	fields   []textinput.Model
-	labels   []string
-	focus    int
-	notice   string
-	spinner  spinner.Model
-	finished bool
+	s          *modelctl.Service
+	ctx        context.Context
+	page       screen
+	cursor     int
+	width      int
+	height     int
+	current    string
+	models     []string
+	loading    bool
+	search     textinput.Model
+	fields     []textinput.Model
+	labels     []string
+	focus      int
+	notice     string
+	spinner    spinner.Model
+	finished   bool
+	saving     bool
+	saveCancel context.CancelFunc
 }
 
 func newInput(secret bool) textinput.Model {
@@ -118,14 +123,13 @@ func (m *ui) back() {
 
 func (m *ui) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case loginMsg:
-		m.notice = "✓ OpenCode login completed."
-		if msg.err != nil {
-			m.notice = "OpenCode login did not complete."
-		}
+	case tokenSavedMsg:
+		m.saving = false
+		m.saveCancel = nil
+		m.saved(msg.result, msg.err)
 		return m, nil
 	case spinner.TickMsg:
-		if m.loading {
+		if m.loading || m.saving {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -153,6 +157,9 @@ func (m *ui) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		key := msg.String()
 		if key == "ctrl+c" {
 			return m, m.quit()
+		}
+		if m.saving {
+			return m, nil
 		}
 		if key == "esc" {
 			if m.page == menuScreen {
@@ -195,8 +202,7 @@ func (m *ui) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch key {
 			case "tab", "shift+tab", "enter":
 				if key == "enter" && m.focus == len(m.fields)-1 {
-					m.submit()
-					return m, nil
+					return m, m.submit()
 				}
 				m.fields[m.focus].Blur()
 				step := 1
@@ -235,9 +241,6 @@ func (m *ui) selectMenu() tea.Cmd {
 	case 2:
 		return m.form(providerScreen, []string{"Provider ID", "Base URL (blank: unchanged)", "Model IDs (comma-separated, blank: unchanged)", "Display name (optional)", "AI SDK package (optional)"}, nil)
 	case 3:
-		if m.s.Target == "opencode2" {
-			return tea.ExecProcess(m.s.LoginCommand(m.ctx, ""), func(err error) tea.Msg { return loginMsg{err} })
-		}
 		provider, _, _ := strings.Cut(m.current, "/")
 		return m.form(tokenScreen, []string{"Provider ID", "API token (hidden)"}, []string{provider})
 	default:
@@ -246,6 +249,9 @@ func (m *ui) selectMenu() tea.Cmd {
 }
 
 func (m *ui) quit() tea.Cmd {
+	if m.saveCancel != nil {
+		m.saveCancel()
+	}
 	m.back()
 	m.finished = true
 	return tea.Quit
@@ -262,10 +268,10 @@ func (m *ui) filtered() []string {
 	return found
 }
 
-func (m *ui) submit() {
+func (m *ui) submit() tea.Cmd {
 	if err := m.ctx.Err(); err != nil {
 		m.notice = "Canceled. Nothing saved."
-		return
+		return nil
 	}
 	var r modelctl.Result
 	var err error
@@ -282,11 +288,23 @@ func (m *ui) submit() {
 		r, err = m.s.SetProvider(modelctl.ProviderOptions{ID: m.fields[0].Value(), BaseURL: m.fields[1].Value(), Models: models, Name: m.fields[3].Value(), Package: m.fields[4].Value()})
 	case tokenScreen:
 		token := []byte(m.fields[1].Value())
-		r, err = m.s.SetToken(m.fields[0].Value(), token)
-		clear(token)
+		provider := m.fields[0].Value()
 		m.fields[1].Reset()
+		if m.s.Target == "opencode2" {
+			ctx, cancel := context.WithCancel(m.ctx)
+			m.saveCancel, m.saving, m.notice = cancel, true, ""
+			return tea.Batch(m.spinner.Tick, func() tea.Msg {
+				defer clear(token)
+				defer cancel()
+				r, err := m.s.SetTokenContext(ctx, provider, token)
+				return tokenSavedMsg{r, err}
+			})
+		}
+		r, err = m.s.SetTokenContext(m.ctx, provider, token)
+		clear(token)
 	}
 	m.saved(r, err)
+	return nil
 }
 
 func (m *ui) saved(r modelctl.Result, err error) {
@@ -333,12 +351,13 @@ func (m *ui) View() tea.View {
 			fmt.Fprintln(&b, clip("  "+text))
 		}
 	}
+	if m.saving {
+		fmt.Fprintf(&b, "%s Saving API token…\n%s\n", m.spinner.View(), muted.Render("ctrl+c stop waiting"))
+		return tea.NewView(b.String())
+	}
 	switch m.page {
 	case menuScreen:
 		for i, item := range menuItems {
-			if i == 3 && m.s.Target == "opencode2" {
-				item = "Sign in with OpenCode"
-			}
 			row(i == m.cursor, item)
 		}
 		b.WriteString("\n" + muted.Render("↑↓ choose · enter open · esc quit") + "\n")

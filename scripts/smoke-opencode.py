@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 
@@ -10,8 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 MODELCTL = str(ROOT / "bin/modelctl")
 
 
-def run(args, env, cwd):
-    result = subprocess.run(args, env=env, cwd=cwd, capture_output=True, text=True, timeout=45)
+def run(args, env, cwd, input=None):
+    result = subprocess.run(args, env=env, cwd=cwd, capture_output=True, text=True, timeout=45, input=input)
     if result.returncode:
         raise RuntimeError(f"{Path(args[0]).name} {args[1]} failed with exit {result.returncode}")
     return result.stdout
@@ -48,4 +49,20 @@ for target in ("opencode", "opencode2"):
             assert provider["package"] == "aisdk:@ai-sdk/openai-compatible"
             assert provider["settings"]["baseURL"] == "https://example.test/v1"
             assert documents[-1]["model"] == {"providerID": "custom", "model": "test-model"}
-        print(f"PASS {target}: provider, current, use, list, auto detection (isolated files)")
+        original_config = Path(config).read_bytes()
+        for token in ("modelctl-smoke-first", "modelctl-smoke-replacement"):
+            saved = json.loads(run(cli + ["token", "set", "custom", "--stdin", "--json"], env, tmp, input=token + "\n"))
+            assert saved["changed"] and token not in json.dumps(saved)
+            assert Path(config).read_bytes() == original_config
+            data = Path(env["XDG_DATA_HOME"]) / "opencode"
+            if target == "opencode":
+                assert json.loads((data / "auth.json").read_text())["custom"]["key"] == token
+            else:
+                assert saved["store"] == "opencode2"
+                databases = list(data.rglob("opencode.db"))
+                assert len(databases) == 1, "Expected one native V2 database"
+                with sqlite3.connect(f"file:{databases[0]}?mode=ro", uri=True) as db:
+                    rows = db.execute("SELECT value FROM credential WHERE integration_id = ? AND active = 1", ("custom",)).fetchall()
+                    assert len(rows) == 1 and json.loads(rows[0][0]).get("key") == token, "V2 did not activate only the pasted token"
+                assert not (data / "auth.json").exists()
+        print(f"PASS {target}: provider, current, use, list, auto detection, token save and replacement (isolated files)")

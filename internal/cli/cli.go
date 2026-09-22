@@ -199,7 +199,7 @@ func (a *app) providerCommand() *cobra.Command {
 
 func (a *app) tokenCommand() *cobra.Command {
 	var stdin bool
-	parent := &cobra.Command{Use: "token", Short: "Store API keys in OpenCode's global credential file", Args: args(cobra.NoArgs)}
+	parent := &cobra.Command{Use: "token", Short: "Store API keys in OpenCode's credential store", Args: args(cobra.NoArgs)}
 	set := &cobra.Command{
 		Use: "set PROVIDER", Short: "Save a token from hidden terminal input or --stdin", Args: args(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, values []string) error {
@@ -209,20 +209,6 @@ func (a *app) tokenCommand() *cobra.Command {
 			s, err := a.service()
 			if err != nil {
 				return err
-			}
-			if s.Target == "opencode2" {
-				if stdin || a.json || !terminalReader(a.in) || !terminalWriter(a.errout) {
-					return usageError{errors.New("V2 tokens require OpenCode's interactive login; run modelctl --target opencode2 token set PROVIDER without --stdin or --json")}
-				}
-				login := s.LoginCommand(cmd.Context(), values[0])
-				login.Stdin, login.Stdout, login.Stderr = a.in, a.errout, a.errout
-				if err := login.Run(); err != nil {
-					if cmd.Context().Err() != nil {
-						return cmd.Context().Err()
-					}
-					return errors.New("OpenCode 2 login did not complete")
-				}
-				return nil
 			}
 			var token []byte
 			if stdin {
@@ -243,7 +229,7 @@ func (a *app) tokenCommand() *cobra.Command {
 			if err := cmd.Context().Err(); err != nil {
 				return err
 			}
-			result, err := s.SetToken(values[0], token)
+			result, err := s.SetTokenContext(cmd.Context(), values[0], token)
 			return a.result(result, err)
 		},
 	}
@@ -305,6 +291,9 @@ func resultText(r modelctl.Result) string {
 	case "provider":
 		return fmt.Sprintf("%s provider %s in %s", prefix, r.Provider, r.Path)
 	case "token":
+		if r.Store == "opencode2" {
+			return fmt.Sprintf("%s token for %s in OpenCode 2", prefix, r.Provider)
+		}
 		return fmt.Sprintf("%s token for %s in %s", prefix, r.Provider, r.Path)
 	default:
 		return strings.TrimSpace(prefix)
