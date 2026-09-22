@@ -38,8 +38,8 @@ func TestCLIRoundTrip(t *testing.T) {
 	home := sandbox(t)
 	project := filepath.Join(home, "project", "opencode.jsonc")
 	commands := [][]string{
-		{"provider", "set", "intility", "--base-url", "https://example.test/v1", "--model", "org/model", "--model", "second"},
-		{"use", "intility/org/model"},
+		{"provider", "set", "custom", "--base-url", "https://example.test/v1", "--model", "org/model", "--model", "second"},
+		{"use", "custom/org/model"},
 		{"current"},
 	}
 	for _, args := range commands {
@@ -52,10 +52,10 @@ func TestCLIRoundTrip(t *testing.T) {
 		}
 	}
 	out, _, err := execute("", "current", "--config", project)
-	if err != nil || out != "intility/org/model\n" {
+	if err != nil || out != "custom/org/model\n" {
 		t.Fatalf("current: %q, %v", out, err)
 	}
-	out, stderr, err := execute("fake-test-token\n", "token", "set", "intility", "--stdin", "--json", "--config", project)
+	out, stderr, err := execute("fake-test-token\n", "token", "set", "custom", "--stdin", "--json", "--config", project)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestCLIRoundTrip(t *testing.T) {
 
 func TestCommandsDoNotPromptWithoutTerminal(t *testing.T) {
 	sandbox(t)
-	for _, args := range [][]string{nil, {"--json"}, {"use"}, {"provider", "set"}, {"token", "set", "intility"}, {"token", "set", "intility", "--json"}, {"use", "a/b", "extra"}, {"--unknown"}} {
+	for _, args := range [][]string{nil, {"--json"}, {"use"}, {"provider", "set"}, {"token", "set", "custom"}, {"token", "set", "custom", "--json"}, {"use", "a/b", "extra"}, {"--unknown"}} {
 		out, stderr, err := execute("never-consume-this-token", args...)
 		if err == nil {
 			t.Fatalf("accepted %v", args)

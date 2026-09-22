@@ -18,7 +18,7 @@ import (
 func fixture(t *testing.T) *Service {
 	t.Helper()
 	dir := t.TempDir()
-	return &Service{ConfigPath: filepath.Join(dir, "opencode.jsonc"), AuthPath: filepath.Join(dir, "data", "auth.json"), Getenv: func(string) string { return "" }, RunModels: func(context.Context, string) ([]byte, error) { return []byte("intility/model\n"), nil }}
+	return &Service{ConfigPath: filepath.Join(dir, "opencode.jsonc"), AuthPath: filepath.Join(dir, "data", "auth.json"), Getenv: func(string) string { return "" }, RunModels: func(context.Context, string) ([]byte, error) { return []byte("custom/model\n"), nil }}
 }
 
 func put(t *testing.T, path, text string) {
@@ -152,7 +152,7 @@ func TestMissingConfigAndStrictJSON(t *testing.T) {
 	if _, err := os.Stat(s.ConfigPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("read created config")
 	}
-	if _, err := s.Use("intility/model"); err != nil {
+	if _, err := s.Use("custom/model"); err != nil {
 		t.Fatal(err)
 	}
 	if !json.Valid([]byte(contents(t, s.ConfigPath))) {
@@ -165,7 +165,7 @@ func TestBadConfigIsNotChangedOrLeaked(t *testing.T) {
 		t.Run(fmt.Sprintf("case%d", i), func(t *testing.T) {
 			s := fixture(t)
 			put(t, s.ConfigPath, text)
-			_, err := s.Use("intility/model")
+			_, err := s.Use("custom/model")
 			if err == nil {
 				t.Fatal("expected an error")
 			}
@@ -194,7 +194,7 @@ func TestModelReferences(t *testing.T) {
 
 func TestProviderCreateAndMerge(t *testing.T) {
 	s := fixture(t)
-	o := ProviderOptions{ID: "intility", BaseURL: "https://example.test/v1", Models: []string{"org/model~test"}, Name: "Intility"}
+	o := ProviderOptions{ID: "custom", BaseURL: "https://example.test/v1", Models: []string{"org/model~test"}, Name: "Custom"}
 	if _, err := s.SetProvider(o); err != nil {
 		t.Fatal(err)
 	}
@@ -202,33 +202,33 @@ func TestProviderCreateAndMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if npm, _ := d.string("provider", "intility", "npm"); npm != "@ai-sdk/openai-compatible" {
+	if npm, _ := d.string("provider", "custom", "npm"); npm != "@ai-sdk/openai-compatible" {
 		t.Fatal(npm)
 	}
-	if d.get("provider", "intility", "models", "org/model~test") == nil {
+	if d.get("provider", "custom", "models", "org/model~test") == nil {
 		t.Fatal("model ID was treated as a path")
 	}
-	if err := d.set([]string{"provider", "intility", "models", "org/model~test", "limit"}, map[string]int{"context": 12345}); err != nil {
+	if err := d.set([]string{"provider", "custom", "models", "org/model~test", "limit"}, map[string]int{"context": 12345}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.set([]string{"provider", "intility", "options", "apiKey"}, "{env:KEY}"); err != nil {
+	if err := d.set([]string{"provider", "custom", "options", "apiKey"}, "{env:KEY}"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.save(false); err != nil {
 		t.Fatal(err)
 	}
-	o = ProviderOptions{ID: "intility", BaseURL: "http://localhost:8000/v1", Models: []string{"org/model~test", "second"}}
+	o = ProviderOptions{ID: "custom", BaseURL: "http://localhost:8000/v1", Models: []string{"org/model~test", "second"}}
 	if _, err := s.SetProvider(o); err != nil {
 		t.Fatal(err)
 	}
 	d, _ = loadDocument(s.ConfigPath)
-	if name, _ := d.string("provider", "intility", "name"); name != "Intility" {
+	if name, _ := d.string("provider", "custom", "name"); name != "Custom" {
 		t.Fatal("name lost")
 	}
-	if d.get("provider", "intility", "models", "org/model~test", "limit") == nil {
+	if d.get("provider", "custom", "models", "org/model~test", "limit") == nil {
 		t.Fatal("model options lost")
 	}
-	if key, _ := d.string("provider", "intility", "options", "apiKey"); key != "{env:KEY}" {
+	if key, _ := d.string("provider", "custom", "options", "apiKey"); key != "{env:KEY}" {
 		t.Fatal("credential reference lost")
 	}
 	r, err := s.SetProvider(o)
@@ -263,12 +263,12 @@ func TestProviderValidation(t *testing.T) {
 
 func TestTokenStorageAndOverrides(t *testing.T) {
 	s := fixture(t)
-	put(t, s.AuthPath, `{"intility":{"type":"api","key":"old","metadata":{"keep":"yes"}},"other":{"type":"oauth","access":"untouched"}}`)
+	put(t, s.AuthPath, `{"custom":{"type":"api","key":"old","metadata":{"keep":"yes"}},"other":{"type":"oauth","access":"untouched"}}`)
 	if err := os.Chmod(s.AuthPath, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	put(t, s.ConfigPath, `{"provider":{"intility":{"options":{"apiKey":"{env:KEY}"}}}}`)
-	r, err := s.SetToken("intility", []byte("new-test-token\r\n"))
+	put(t, s.ConfigPath, `{"provider":{"custom":{"options":{"apiKey":"{env:KEY}"}}}}`)
+	r, err := s.SetToken("custom", []byte("new-test-token\r\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestTokenStorageAndOverrides(t *testing.T) {
 		t.Fatal("auth is not strict JSON")
 	}
 	d := decoded(t, data)
-	provider := d["intility"].(map[string]any)
+	provider := d["custom"].(map[string]any)
 	if provider["key"] != "new-test-token" || provider["metadata"].(map[string]any)["keep"] != "yes" {
 		t.Fatal("token or metadata incorrect")
 	}
@@ -295,7 +295,7 @@ func TestTokenStorageAndOverrides(t *testing.T) {
 	if strings.Contains(string(encoded), "new-test-token") {
 		t.Fatal("token in result")
 	}
-	r, err = s.SetToken("intility", []byte("new-test-token"))
+	r, err = s.SetToken("custom", []byte("new-test-token"))
 	if err != nil || r.Changed {
 		t.Fatalf("token write not idempotent: %+v, %v", r, err)
 	}
@@ -311,7 +311,7 @@ func TestTokenStorageAndOverrides(t *testing.T) {
 		}
 		return ""
 	}
-	if _, err := s.SetToken("intility", []byte("new")); err == nil {
+	if _, err := s.SetToken("custom", []byte("new")); err == nil {
 		t.Fatal("ignored auth override")
 	}
 }

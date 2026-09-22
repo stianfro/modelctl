@@ -159,7 +159,7 @@ func (a *app) providerCommand() *cobra.Command {
 	parent := &cobra.Command{Use: "provider", Short: "Configure custom providers", Args: args(cobra.NoArgs)}
 	set := &cobra.Command{
 		Use: "set ID", Short: "Add or update a custom provider without removing other settings", Args: args(cobra.ExactArgs(1)),
-		Example: "  ocswitch provider set intility --base-url https://DEPLOYMENT-llm.ai.intility.app/v1 --model MODEL",
+		Example: "  ocswitch provider set custom --base-url https://api.example.com/v1 --model MODEL",
 		RunE: func(cmd *cobra.Command, values []string) error {
 			for _, name := range []string{"base-url", "name", "npm"} {
 				v, _ := cmd.Flags().GetString(name)
