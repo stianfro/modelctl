@@ -12,13 +12,13 @@ deps +modules:
     go get {{modules}}
 
 build:
-    go build -o bin/ocswitch ./cmd/ocswitch
+    go build -o bin/modelctl ./cmd/modelctl
 
 install:
-    go install ./cmd/ocswitch
+    go install ./cmd/modelctl
 
 run *args:
-    go run ./cmd/ocswitch {{args}}
+    go run ./cmd/modelctl {{args}}
 
 fmt:
     go fmt ./...

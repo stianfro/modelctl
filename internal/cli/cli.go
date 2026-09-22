@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/stianfro/ocswitch/internal/ocswitch"
+	"github.com/stianfro/modelctl/internal/modelctl"
 	"golang.org/x/term"
 )
 
@@ -42,17 +42,17 @@ type app struct {
 	errout     io.Writer
 	config     string
 	json       bool
-	newService func(string) (*ocswitch.Service, error)
+	newService func(string) (*modelctl.Service, error)
 }
 
 func New(in io.Reader, out, errout io.Writer) *cobra.Command {
-	a := &app{in: in, out: out, errout: errout, newService: ocswitch.New}
+	a := &app{in: in, out: out, errout: errout, newService: modelctl.New}
 	return a.command()
 }
 
 func (a *app) command() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "ocswitch",
+		Use:           "modelctl",
 		Short:         "Switch OpenCode models and API tokens",
 		Long:          "Edit OpenCode's default model, custom providers, and API tokens.\nRun without a command in a terminal to open the interactive menu.\nChanges do not switch existing OpenCode sessions or remove project overrides.",
 		SilenceUsage:  true,
@@ -60,7 +60,7 @@ func (a *app) command() *cobra.Command {
 		Args:          args(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if a.json || !terminalReader(a.in) || !terminalWriter(a.out) {
-				return usageError{errors.New("interactive mode needs a terminal; use a command such as 'ocswitch current --json' or 'ocswitch --help'")}
+				return usageError{errors.New("interactive mode needs a terminal; use a command such as 'modelctl current --json' or 'modelctl --help'")}
 			}
 			s, err := a.newService(a.config)
 			if err != nil {
@@ -155,11 +155,11 @@ func (a *app) useCommand() *cobra.Command {
 }
 
 func (a *app) providerCommand() *cobra.Command {
-	var o ocswitch.ProviderOptions
+	var o modelctl.ProviderOptions
 	parent := &cobra.Command{Use: "provider", Short: "Configure custom providers", Args: args(cobra.NoArgs)}
 	set := &cobra.Command{
 		Use: "set ID", Short: "Add or update a custom provider without removing other settings", Args: args(cobra.ExactArgs(1)),
-		Example: "  ocswitch provider set custom --base-url https://api.example.com/v1 --model MODEL",
+		Example: "  modelctl provider set custom --base-url https://api.example.com/v1 --model MODEL",
 		RunE: func(cmd *cobra.Command, values []string) error {
 			for _, name := range []string{"base-url", "name", "npm"} {
 				v, _ := cmd.Flags().GetString(name)
@@ -190,7 +190,7 @@ func (a *app) tokenCommand() *cobra.Command {
 	set := &cobra.Command{
 		Use: "set PROVIDER", Short: "Save a token from hidden terminal input or --stdin", Args: args(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, values []string) error {
-			if err := ocswitch.ValidateProvider(values[0]); err != nil {
+			if err := modelctl.ValidateProvider(values[0]); err != nil {
 				return usageError{err}
 			}
 			s, err := a.newService(a.config)
@@ -232,7 +232,7 @@ func readToken(ctx context.Context, in io.Reader) ([]byte, error) {
 	}
 	done := make(chan answer)
 	go func() {
-		token, err := io.ReadAll(io.LimitReader(in, ocswitch.MaxTokenSize+3))
+		token, err := io.ReadAll(io.LimitReader(in, modelctl.MaxTokenSize+3))
 		select {
 		case done <- answer{token, err}:
 		case <-ctx.Done():
@@ -251,7 +251,7 @@ func readToken(ctx context.Context, in io.Reader) ([]byte, error) {
 	}
 }
 
-func (a *app) result(result ocswitch.Result, err error) error {
+func (a *app) result(result modelctl.Result, err error) error {
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func (a *app) result(result ocswitch.Result, err error) error {
 	return err
 }
 
-func resultText(r ocswitch.Result) string {
+func resultText(r modelctl.Result) string {
 	prefix := "Saved"
 	if !r.Changed {
 		prefix = "Unchanged:"

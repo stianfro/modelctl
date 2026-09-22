@@ -8,7 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/stianfro/ocswitch/internal/ocswitch"
+	"github.com/stianfro/modelctl/internal/modelctl"
 )
 
 type screen int
@@ -29,7 +29,7 @@ type modelsMsg struct {
 }
 
 type ui struct {
-	s       *ocswitch.Service
+	s       *modelctl.Service
 	ctx     context.Context
 	page    screen
 	cursor  int
@@ -60,7 +60,7 @@ func newInput(secret bool) textinput.Model {
 	return f
 }
 
-func newUI(ctx context.Context, s *ocswitch.Service) *ui {
+func newUI(ctx context.Context, s *modelctl.Service) *ui {
 	m := &ui{s: s, ctx: ctx, width: 80, height: 24, search: newInput(false)}
 	m.refreshCurrent()
 	return m
@@ -229,7 +229,7 @@ func (m *ui) submit() {
 		m.notice = "Canceled. Nothing saved."
 		return
 	}
-	var r ocswitch.Result
+	var r modelctl.Result
 	var err error
 	switch m.page {
 	case modelScreen:
@@ -241,7 +241,7 @@ func (m *ui) submit() {
 				models = append(models, strings.TrimSpace(model))
 			}
 		}
-		r, err = m.s.SetProvider(ocswitch.ProviderOptions{ID: m.fields[0].Value(), BaseURL: m.fields[1].Value(), Models: models, Name: m.fields[3].Value(), Package: m.fields[4].Value()})
+		r, err = m.s.SetProvider(modelctl.ProviderOptions{ID: m.fields[0].Value(), BaseURL: m.fields[1].Value(), Models: models, Name: m.fields[3].Value(), Package: m.fields[4].Value()})
 	case tokenScreen:
 		token := []byte(m.fields[1].Value())
 		r, err = m.s.SetToken(m.fields[0].Value(), token)
@@ -251,7 +251,7 @@ func (m *ui) submit() {
 	m.saved(r, err)
 }
 
-func (m *ui) saved(r ocswitch.Result, err error) {
+func (m *ui) saved(r modelctl.Result, err error) {
 	if err != nil {
 		m.notice = err.Error()
 		return
@@ -270,7 +270,7 @@ func (m *ui) View() tea.View {
 	if current == "" {
 		current = "(not set in this file)"
 	}
-	fmt.Fprintf(&b, "ocswitch\n\nConfig: %s\nDefault: %s\n\n", m.s.ConfigPath, current)
+	fmt.Fprintf(&b, "modelctl\n\nConfig: %s\nDefault: %s\n\n", m.s.ConfigPath, current)
 	switch m.page {
 	case menuScreen:
 		for i, item := range menuItems {
@@ -313,7 +313,7 @@ func (m *ui) View() tea.View {
 	return v
 }
 
-func runUI(ctx context.Context, s *ocswitch.Service, in io.Reader, out io.Writer) error {
+func runUI(ctx context.Context, s *modelctl.Service, in io.Reader, out io.Writer) error {
 	_, err := tea.NewProgram(newUI(ctx, s), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
 	if ctx.Err() != nil {
 		return ctx.Err()

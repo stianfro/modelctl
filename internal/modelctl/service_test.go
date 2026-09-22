@@ -1,4 +1,4 @@
-package ocswitch
+package modelctl
 
 import (
 	"context"
@@ -351,7 +351,7 @@ func TestConcurrentChangeLockAndSymlink(t *testing.T) {
 	if contents(t, s.ConfigPath) != `{"keep":true}` {
 		t.Fatal("concurrent edit lost")
 	}
-	lock, err := os.OpenFile(s.ConfigPath+".ocswitch.lock", os.O_RDWR, 0)
+	lock, err := os.OpenFile(s.ConfigPath+".modelctl.lock", os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

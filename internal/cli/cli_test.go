@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/stianfro/ocswitch/internal/ocswitch"
+	"github.com/stianfro/modelctl/internal/modelctl"
 )
 
 func sandbox(t *testing.T) string {
@@ -90,7 +90,7 @@ func TestCommandsDoNotPromptWithoutTerminal(t *testing.T) {
 
 func TestTokenLimits(t *testing.T) {
 	sandbox(t)
-	for _, token := range []string{"", "two\nlines", strings.Repeat("x", ocswitch.MaxTokenSize+1)} {
+	for _, token := range []string{"", "two\nlines", strings.Repeat("x", modelctl.MaxTokenSize+1)} {
 		out, _, err := execute(token, "token", "set", "p", "--stdin", "--json")
 		if err == nil || out != "" {
 			t.Fatal("accepted invalid token")
@@ -143,6 +143,26 @@ func TestErrorsAndHelp(t *testing.T) {
 	}
 }
 
+func TestCommandBranding(t *testing.T) {
+	sandbox(t)
+	cmd := New(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	if cmd.Name() != "modelctl" {
+		t.Fatalf("command name = %q", cmd.Name())
+	}
+	out, _, err := execute("", "--help")
+	if err != nil || !strings.Contains(out, "modelctl [command]") {
+		t.Fatalf("root help: %q, %v", out, err)
+	}
+	out, _, err = execute("", "provider", "set", "--help")
+	if err != nil || !strings.Contains(out, "modelctl provider set custom") {
+		t.Fatalf("provider help: %q, %v", out, err)
+	}
+	m := uiFixture(t)
+	if !strings.HasPrefix(m.View().Content, "modelctl\n") {
+		t.Fatal("interactive title does not match the command name")
+	}
+}
+
 type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("broken output") }
@@ -159,7 +179,7 @@ func TestOutputErrors(t *testing.T) {
 func uiFixture(t *testing.T) *ui {
 	t.Helper()
 	sandbox(t)
-	s, err := ocswitch.New("")
+	s, err := modelctl.New("")
 	if err != nil {
 		t.Fatal(err)
 	}

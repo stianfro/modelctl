@@ -1,4 +1,4 @@
-package ocswitch
+package modelctl
 
 import (
 	"bytes"

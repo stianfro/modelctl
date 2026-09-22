@@ -1,4 +1,4 @@
-module github.com/stianfro/ocswitch
+module github.com/stianfro/modelctl
 
 go 1.26.0
 

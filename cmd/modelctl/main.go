@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/stianfro/ocswitch/internal/cli"
+	"github.com/stianfro/modelctl/internal/cli"
 )
 
 func main() {
@@ -19,7 +19,7 @@ func run() int {
 	defer stop()
 	command := cli.New(os.Stdin, os.Stdout, os.Stderr)
 	if err := command.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "ocswitch:", err)
+		fmt.Fprintln(os.Stderr, "modelctl:", err)
 		return cli.ExitCode(err)
 	}
 	return 0

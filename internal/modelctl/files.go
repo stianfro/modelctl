@@ -1,4 +1,4 @@
-package ocswitch
+package modelctl
 
 import (
 	"bytes"
@@ -66,14 +66,14 @@ func (s snapshot) write(data []byte, secret bool) (bool, error) {
 		return false, err
 	}
 	// Keep the lock file: removing it would let concurrent writers lock different inodes.
-	lock, err := os.OpenFile(s.path+".ocswitch.lock", os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0o600)
+	lock, err := os.OpenFile(s.path+".modelctl.lock", os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("cannot lock %s: %w", s.path, err)
 	}
 	defer lock.Close()
 	info, err := lock.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		return false, fmt.Errorf("not a regular lock file: %s.ocswitch.lock", s.path)
+		return false, fmt.Errorf("not a regular lock file: %s.modelctl.lock", s.path)
 	}
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		return false, fmt.Errorf("another process is updating %s; retry", s.path)
@@ -89,7 +89,7 @@ func (s snapshot) write(data []byte, secret bool) (bool, error) {
 	if s.info != nil && bytes.Equal(s.data, data) && s.info.Mode().Perm() == mode {
 		return false, nil
 	}
-	tmp, err := os.CreateTemp(dir, ".ocswitch-*")
+	tmp, err := os.CreateTemp(dir, ".modelctl-*")
 	if err != nil {
 		return false, err
 	}
