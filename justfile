@@ -67,6 +67,6 @@ yaml:
 
 ci: lint test build
 
-# Optional integration check. Requires both installed OpenCode binaries.
-smoke-opencode: build
-    python3 scripts/smoke-opencode.py
+# Optional integration check. Defaults to both binaries; pass opencode2 for V2 only.
+smoke-opencode *targets: build
+    python3 scripts/smoke-opencode.py {{targets}}

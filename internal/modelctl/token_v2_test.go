@@ -40,7 +40,12 @@ func TestV2TokenNativeAPI(t *testing.T) {
 			t.Error("missing location")
 		}
 		if r.Method == http.MethodGet {
-			if gets.Add(1) == 1 {
+			switch gets.Add(1) {
+			case 1:
+				w.WriteHeader(http.StatusNotFound)
+				fmt.Fprint(w, `SENSITIVE-KEY`)
+				return
+			case 2:
 				fmt.Fprint(w, `{"data":null}`)
 				return
 			}
@@ -67,7 +72,7 @@ func TestV2TokenNativeAPI(t *testing.T) {
 	if err != nil || !result.Changed || result.Store != "opencode2" || result.Path != "" {
 		t.Fatalf("%+v %v", result, err)
 	}
-	if gets.Load() != 2 || posts.Load() != 1 {
+	if gets.Load() != 3 || posts.Load() != 1 {
 		t.Fatal("did not wait for integration readiness")
 	}
 	encoded, _ := json.Marshal(result)
@@ -141,5 +146,44 @@ func TestV2TokenCancellationAndEndpointValidation(t *testing.T) {
 	s.Binary = "missing"
 	if _, err := s.SetToken("custom", []byte("bad token")); err == nil || !strings.Contains(err.Error(), "without whitespace") {
 		t.Fatal(err)
+	}
+}
+
+func TestV2TokenLookupErrors(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusUnauthorized, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			var gets, posts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					posts.Add(1)
+				} else {
+					gets.Add(1)
+				}
+				w.WriteHeader(status)
+				// Even a valid-looking body on an error response must not allow a save.
+				fmt.Fprint(w, `{"data":{"id":"custom","methods":[{"type":"key"}]},"message":"SENSITIVE-KEY"}`)
+			}))
+			defer server.Close()
+			base, err := privateEndpoint(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
+			defer cancel()
+			err = connectV2Token(ctx, server.Client(), base, "password", t.TempDir(), "custom", "SENSITIVE-KEY")
+			if err == nil || strings.Contains(err.Error(), "SENSITIVE-KEY") {
+				t.Fatalf("unsafe error: %v", err)
+			}
+			if posts.Load() != 0 {
+				t.Fatal("token sent before provider was ready")
+			}
+			if status == http.StatusNotFound {
+				if gets.Load() < 2 || ctx.Err() == nil {
+					t.Fatalf("did not retry until cancellation: %d, %v", gets.Load(), err)
+				}
+			} else if gets.Load() != 1 {
+				t.Fatal("retried a non-readiness error")
+			}
+		})
 	}
 }

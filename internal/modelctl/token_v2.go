@@ -129,7 +129,7 @@ func connectV2Token(ctx context.Context, client *http.Client, base *url.URL, pas
 		return response, nil
 	}
 	// New V2 locations register integrations asynchronously. Wait before sending
-	// the key; the native login CLI currently attempts this lookup too early.
+	// the key. Older previews return null while loading; newer versions return 404.
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -148,13 +148,13 @@ func connectV2Token(ctx context.Context, client *http.Client, base *url.URL, pas
 		}
 		decodeErr := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&envelope)
 		response.Body.Close()
-		if response.StatusCode != http.StatusOK {
+		if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNotFound {
 			return fmt.Errorf("OpenCode 2 provider lookup failed (HTTP %d; response hidden)", response.StatusCode)
 		}
-		if decodeErr != nil {
+		if response.StatusCode == http.StatusOK && decodeErr != nil {
 			return errors.New("unexpected OpenCode 2 provider response (output hidden)")
 		}
-		if envelope.Data != nil {
+		if response.StatusCode == http.StatusOK && envelope.Data != nil {
 			if envelope.Data.ID != provider {
 				return errors.New("OpenCode 2 returned a different provider; token was not sent")
 			}

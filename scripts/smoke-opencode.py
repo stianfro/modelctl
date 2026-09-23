@@ -1,4 +1,5 @@
 """Test installed OpenCode versions with isolated config, data, and credentials."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,11 @@ def run(args, env, cwd, input=None):
     return result.stdout
 
 
-for target in ("opencode", "opencode2"):
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("targets", nargs="*", choices=("opencode", "opencode2"), default=["opencode", "opencode2"])
+args = parser.parse_args()
+
+for target in args.targets:
     binary = shutil.which(target)
     if binary is None:
         raise RuntimeError(f"{target} is required for this smoke test")
